@@ -1,0 +1,69 @@
+name: Verificar catálogo e gerar APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obter código
+        uses: actions/checkout@v4
+      - name: Preparar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Preparar Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Preparar projeto Android
+        run: |
+          mkdir -p evidencias
+          if [ ! -d android ]; then
+            flutter create --platforms=android --project-name=catalogo_jogos --org=br.com.alvaro .
+            rm -f test/widget_test.dart
+          fi
+          flutter --version | tee evidencias/01_versoes.txt
+          flutter pub get
+      - name: Formatar, analisar e testar
+        shell: bash
+        run: |
+          set -o pipefail
+          dart format --output=none . | tee evidencias/03_formatacao.txt
+          flutter analyze | tee evidencias/04_analise.txt
+          flutter test --reporter=expanded | tee evidencias/05_testes.txt
+      - name: Gerar APK
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter build apk | tee evidencias/06_build.txt
+          git rev-parse HEAD | tee evidencias/07_commit.txt
+          sha256sum build/app/outputs/flutter-apk/app-release.apk | tee evidencias/08_apk_sha256.txt
+      - name: Disponibilizar APK, fontes preparadas e resultados
+        uses: actions/upload-artifact@v4
+        with:
+          name: entrega-android-${{ github.sha }}
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            evidencias/
+            android/
+            lib/
+            test/
+            pubspec.yaml
+            pubspec.lock
+            analysis_options.yaml
+          retention-days: 30
+      - name: Guardar diagnóstico em caso de erro
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostico-${{ github.sha }}
+          path: evidencias/
